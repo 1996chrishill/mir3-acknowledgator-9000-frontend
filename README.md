@@ -8,7 +8,8 @@ Static HTML/JS/CSS served by `nginx:stable-alpine`. No build step, no framework.
 
 - Pending list (incident, title, IDs) with per-item **Ack** and **Ack all** (no confirmation)
 - Auto-refresh of the pending list (paused while the tab is hidden or a call is running)
-- **History** tab (backend `GET /history`, newest first)
+- **History** tab (backend `GET /history`, newest first; auto-job acks are tagged `auto`)
+- **Auto-ack** card: Start/Stop the backend job that acks all pending every 4 min (backend `AUTO_ACK_INTERVAL_S`) and stops itself after 15 min (backend `AUTO_ACK_MAX_DURATION_S`), with on/off/running status, next run, stop time and last run result. The job runs on the backend, so it keeps going with the page closed; it's off after any backend restart.
 - Dry-run badge and online/busy/offline status from `/health`
 - Spinner with elapsed time and disabled buttons while a call runs
 - Handles `409` busy, `404` not pending, `424` failed (shows `error`, `detail`, and each `failed[]` item with its error)

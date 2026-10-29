@@ -30,6 +30,13 @@
         <button id="ackAll" class="primary" data-lock>Ack all</button>
         <button id="refresh" data-lock>Refresh</button>
       </div>
+      <div id="auto" class="card auto">
+        <div class="body">
+          <div class="row"><span class="inc">Auto-ack</span><span id="autoTag" class="tag">…</span></div>
+          <div id="autoInfo" class="sub"></div>
+        </div>
+        <button id="autoToggle" disabled>Start</button>
+      </div>
       <p id="status" class="status"></p>
       <div id="result" hidden></div>
       <ul id="pending" class="list"><li class="empty">Loading…</li></ul>

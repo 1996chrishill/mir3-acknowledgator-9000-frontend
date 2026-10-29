@@ -21,6 +21,10 @@ let running = false; // a call that takes the backend lock (/pending, /ack*) is 
 let pending = [];
 let tick = null;
 let lastRefresh = 0;
+let auto = null; // last /auto status, or null if unknown
+let autoErr = "";
+let autoBusy = false;
+let lastAutoRun; // undefined until the first /auto load sets the baseline
 
 // ---------- API ----------
 
@@ -185,6 +189,102 @@ function showResult(code, b) {
   el.hidden = false;
 }
 
+// ---------- auto-ack job ----------
+
+const shortTime = (ts) => {
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
+const every = (s) => (s % 60 === 0 ? `${s / 60} min` : `${s}s`);
+
+function runSummary(r) {
+  if (!r) return "";
+  if (r.code === 200 && r.dry_run) return `dry run, would ack ${r.would_ack?.length ?? 0}`;
+  if (r.code === 200) return `acked ${r.acked?.length ?? 0}`;
+  const f = r.failed?.length ? `, ${r.failed.length} failed` : "";
+  return `failed: ${r.error || `HTTP ${r.code}`}${f}`;
+}
+
+async function loadAuto() {
+  const { code, body } = await api("GET", "/auto", 10);
+  if (code === 200) {
+    auto = body;
+    autoErr = "";
+  } else {
+    auto = null;
+    autoErr = code === 404 ? "Backend doesn't support auto-ack (update it)" : describe(code, body);
+  }
+  renderAuto();
+  if (!auto) return;
+  if (lastAutoRun === undefined) {
+    lastAutoRun = auto.last_run_at; // baseline on first load
+  } else if (auto.last_run_at && auto.last_run_at !== lastAutoRun) {
+    // a new auto run finished: refresh what it changed
+    lastAutoRun = auto.last_run_at;
+    if (!$("tab-history").hidden) loadHistory();
+    loadPending();
+  }
+}
+
+function renderAuto() {
+  const tag = $("autoTag"), info = $("autoInfo"), btn = $("autoToggle");
+  btn.disabled = autoBusy || !auto;
+  if (!auto) {
+    tag.textContent = "?";
+    tag.className = "tag";
+    info.textContent = autoErr || "Status unknown";
+    info.className = "sub e";
+    btn.textContent = "Start";
+    btn.className = "";
+    return;
+  }
+  const last = auto.last_result
+    ? `Last ${shortTime(auto.last_run_at)}: ${runSummary(auto.last_result)}`
+    : "";
+  const failedLast = auto.last_result && auto.last_result.code !== 200;
+  if (auto.enabled) {
+    tag.textContent = auto.running ? "Running" : "On";
+    tag.className = `tag ${failedLast ? "err" : "ok"}`;
+    const next = auto.running ? "running now" : auto.next_run_at ? `next ${shortTime(auto.next_run_at)}` : "starting";
+    const until = auto.stops_at ? `stops ${shortTime(auto.stops_at)}` : "";
+    info.textContent = [`Every ${every(auto.interval_s)} · ${next}`, until, last].filter(Boolean).join(" · ");
+    btn.textContent = "Stop";
+    btn.className = "danger";
+  } else {
+    tag.textContent = "Off";
+    tag.className = "tag";
+    const limit = auto.max_duration_s ? ` for ${every(auto.max_duration_s)}` : "";
+    const stopped =
+      auto.stop_reason === "max_duration" && auto.stopped_at
+        ? `Stopped ${shortTime(auto.stopped_at)} (${every(auto.max_duration_s)} limit)`
+        : "";
+    info.textContent = [`Acks all pending every ${every(auto.interval_s)}${limit} when started`, stopped, last]
+      .filter(Boolean)
+      .join(" · ");
+    btn.textContent = "Start";
+    btn.className = "";
+  }
+  info.className = `sub${failedLast ? " e" : ""}`;
+  info.title = failedLast ? describe(auto.last_result.code, auto.last_result) : "";
+}
+
+async function toggleAuto() {
+  if (!auto || autoBusy) return;
+  autoBusy = true;
+  renderAuto();
+  const { code, body } = await api("POST", auto.enabled ? "/auto/stop" : "/auto/start", 15);
+  autoBusy = false;
+  if (code === 200) {
+    auto = body;
+    autoErr = "";
+  } else {
+    autoErr = describe(code, body);
+    auto = null;
+  }
+  renderAuto();
+  if (code === 200 && auto.enabled) setTimeout(loadAuto, 1500); // first run starts right away
+}
+
 // ---------- history ----------
 
 async function loadHistory() {
@@ -208,6 +308,7 @@ async function loadHistory() {
         <div class="body">
           <div class="row">
             <span class="tag ${h.result === "acked" ? "ok" : "err"}">${esc(h.result)}</span>
+            ${h.source === "auto" ? `<span class="tag">auto</span>` : ""}
             <span class="inc">${esc(h.incident || "No incident #")}</span>
             <time datetime="${esc(h.timestamp)}">${esc(fmtTime(h.timestamp))}</time>
           </div>
@@ -235,6 +336,7 @@ function showTab(name) {
 }
 
 function refreshAll() {
+  loadAuto();
   if (running) return;
   loadHealth();
   loadPending();
@@ -247,6 +349,7 @@ document.addEventListener("click", (e) => {
   else if (b.id === "ackAll") ack(null);
   else if (b.id === "refresh") refreshAll();
   else if (b.id === "refreshHist") loadHistory();
+  else if (b.id === "autoToggle") toggleAuto();
   else if (b.dataset.id) ack(b.dataset.id);
   else if ("dismiss" in b.dataset) $("result").hidden = true;
 });
@@ -256,6 +359,8 @@ if (CFG.REFRESH_SECONDS > 0) {
   setInterval(() => due() && refreshAll(), 5000);
   document.addEventListener("visibilitychange", () => due() && refreshAll());
 }
+
+setInterval(() => !document.hidden && auto?.enabled && loadAuto(), 15000);
 
 showTab(location.hash === "#history" ? "history" : "pending");
 refreshAll();
