@@ -1,0 +1,12 @@
+services:
+  mir3-acknowledgator-9000-frontend:
+    image: YOUR_DOCKERHUB_USER/mir3-acknowledgator-9000-frontend:latest
+    container_name: mir3-acknowledgator-9000-frontend
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-32263}:80"
+    environment:
+      API_URL: ${API_URL}
+      REFRESH_SECONDS: ${REFRESH_SECONDS:-60}
+      REQUEST_TIMEOUT_S: ${REQUEST_TIMEOUT_S:-180}
+      HISTORY_LIMIT: ${HISTORY_LIMIT:-200}
